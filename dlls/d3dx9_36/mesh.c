@@ -37,6 +37,11 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3dx);
 
+/* for provide_flags parameters */
+#define PROVIDE_MATERIALS 0x1
+#define PROVIDE_SKININFO  0x2
+#define PROVIDE_ADJACENCY 0x4
+
 struct d3dx9_mesh
 {
     ID3DXMesh ID3DXMesh_iface;
@@ -1624,6 +1629,13 @@ static HRESULT remap_faces_for_attrsort(struct d3dx9_mesh *This, const DWORD *in
     return D3D_OK;
 }
 
+static DWORD adjacency_remap(DWORD *face_remap, DWORD index)
+{
+    if (index == 0xffffffff)
+        return index;
+    return face_remap[index];
+}
+
 static HRESULT WINAPI d3dx9_mesh_OptimizeInplace(ID3DXMesh *iface, DWORD flags, const DWORD *adjacency_in,
         DWORD *adjacency_out, DWORD *face_remap_out, ID3DXBuffer **vertex_remap_out)
 {
@@ -1778,9 +1790,10 @@ static HRESULT WINAPI d3dx9_mesh_OptimizeInplace(ID3DXMesh *iface, DWORD flags, 
             for (i = 0; i < This->numfaces; i++) {
                 DWORD old_pos = i * 3;
                 DWORD new_pos = face_remap[i] * 3;
-                adjacency_out[new_pos++] = face_remap[adjacency_in[old_pos++]];
-                adjacency_out[new_pos++] = face_remap[adjacency_in[old_pos++]];
-                adjacency_out[new_pos++] = face_remap[adjacency_in[old_pos++]];
+
+                adjacency_out[new_pos++] = adjacency_remap(face_remap, adjacency_in[old_pos++]);
+                adjacency_out[new_pos++] = adjacency_remap(face_remap, adjacency_in[old_pos++]);
+                adjacency_out[new_pos] = adjacency_remap(face_remap, adjacency_in[old_pos]);
             }
         } else {
             memcpy(adjacency_out, adjacency_in, This->numfaces * 3 * sizeof(*adjacency_out));
@@ -2603,6 +2616,7 @@ struct mesh_data {
 
     struct ID3DXSkinInfo *skin_info;
     unsigned int bone_count;
+    unsigned int skin_weights_info_count;
 };
 
 static HRESULT parse_texture_filename(ID3DXFileData *filedata, char **filename_out)
@@ -2744,7 +2758,7 @@ static void destroy_materials(struct mesh_data *mesh)
     mesh->material_indices = NULL;
 }
 
-static HRESULT parse_material_list(ID3DXFileData *filedata, struct mesh_data *mesh)
+static HRESULT parse_material_list(ID3DXFileData *filedata, struct mesh_data *mesh, DWORD flags)
 {
     ID3DXFileData *child = NULL;
     unsigned int material_count;
@@ -2755,6 +2769,9 @@ static HRESULT parse_material_list(ID3DXFileData *filedata, struct mesh_data *me
     unsigned int i;
     HRESULT hr;
     GUID type;
+
+    if (!(flags & PROVIDE_MATERIALS))
+        return S_OK;
 
     destroy_materials(mesh);
 
@@ -2859,7 +2876,7 @@ end:
     return hr;
 }
 
-static HRESULT parse_texture_coords(ID3DXFileData *filedata, struct mesh_data *mesh)
+static HRESULT parse_texture_coords(ID3DXFileData *filedata, struct mesh_data *mesh, DWORD flags)
 {
     const uint32_t *data;
     SIZE_T data_size;
@@ -2917,7 +2934,7 @@ end:
     return hr;
 }
 
-static HRESULT parse_vertex_colors(ID3DXFileData *filedata, struct mesh_data *mesh)
+static HRESULT parse_vertex_colors(ID3DXFileData *filedata, struct mesh_data *mesh, DWORD flags)
 {
     unsigned int color_count, i;
     const uint32_t *data;
@@ -2996,7 +3013,7 @@ end:
     return hr;
 }
 
-static HRESULT parse_normals(ID3DXFileData *filedata, struct mesh_data *mesh)
+static HRESULT parse_normals(ID3DXFileData *filedata, struct mesh_data *mesh, DWORD flags)
 {
     unsigned int num_face_indices = mesh->num_poly_faces * 2 + mesh->num_tri_faces;
     DWORD *index_out_ptr;
@@ -3102,13 +3119,22 @@ end:
     return hr;
 }
 
-static HRESULT parse_skin_mesh_header(ID3DXFileData *filedata, struct mesh_data *mesh_data)
+static HRESULT parse_skin_mesh_header(ID3DXFileData *filedata, struct mesh_data *mesh_data, DWORD flags)
 {
     const BYTE *data;
     SIZE_T data_size;
     HRESULT hr;
 
     TRACE("filedata %p, mesh_data %p.\n", filedata, mesh_data);
+
+    if (!(flags & PROVIDE_SKININFO))
+        return S_OK;
+
+    if (mesh_data->skin_info)
+    {
+        WARN("Skin mesh header already encountered\n");
+        return E_FAIL;
+    }
 
     if (FAILED(hr = filedata->lpVtbl->Lock(filedata, &data_size, (const void **)&data)))
         return hr;
@@ -3128,8 +3154,9 @@ static HRESULT parse_skin_mesh_header(ID3DXFileData *filedata, struct mesh_data 
     return hr;
 }
 
-static HRESULT parse_skin_weights_info(ID3DXFileData *filedata, struct mesh_data *mesh_data, unsigned int index)
+static HRESULT parse_skin_weights_info(ID3DXFileData *filedata, struct mesh_data *mesh_data, DWORD flags)
 {
+    unsigned int index = mesh_data->skin_weights_info_count;
     unsigned int influence_count;
     const char *name;
     const BYTE *data;
@@ -3137,6 +3164,15 @@ static HRESULT parse_skin_weights_info(ID3DXFileData *filedata, struct mesh_data
     HRESULT hr;
 
     TRACE("filedata %p, mesh_data %p, index %u.\n", filedata, mesh_data, index);
+
+    if (!(flags & PROVIDE_SKININFO))
+        return S_OK;
+
+    if (!mesh_data->skin_info)
+    {
+        WARN("Skin weights found but skin mesh header not encountered yet.\n");
+        return E_FAIL;
+    }
 
     if (FAILED(hr = filedata->lpVtbl->Lock(filedata, &data_size, (const void **)&data)))
         return hr;
@@ -3165,18 +3201,42 @@ static HRESULT parse_skin_weights_info(ID3DXFileData *filedata, struct mesh_data
         hr = mesh_data->skin_info->lpVtbl->SetBoneOffsetMatrix(mesh_data->skin_info, index,
                 (const D3DMATRIX *)(data + influence_count * (sizeof(uint32_t) + sizeof(float))));
 
+    if (SUCCEEDED(hr))
+        ++mesh_data->skin_weights_info_count;
     return hr;
 }
 
-/* for provide_flags parameters */
-#define PROVIDE_MATERIALS 0x1
-#define PROVIDE_SKININFO  0x2
-#define PROVIDE_ADJACENCY 0x4
+typedef HRESULT (*mesh_parse_func)(ID3DXFileData *, struct mesh_data *, DWORD);
+
+static mesh_parse_func mesh_get_parse_func(const GUID *type)
+{
+    static const struct
+    {
+        const GUID *type;
+        mesh_parse_func func;
+    }
+    funcs[] =
+    {
+        {&TID_D3DRMMeshNormals, parse_normals},
+        {&TID_D3DRMMeshVertexColors, parse_vertex_colors},
+        {&TID_D3DRMMeshTextureCoords, parse_texture_coords},
+        {&TID_D3DRMMeshMaterialList, parse_material_list},
+        {&DXFILEOBJ_XSkinMeshHeader, parse_skin_mesh_header},
+        {&DXFILEOBJ_SkinWeights, parse_skin_weights_info},
+    };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(funcs); ++i)
+        if (IsEqualGUID(type, funcs[i].type))
+            return funcs[i].func;
+
+    return NULL;
+}
 
 static HRESULT parse_mesh(ID3DXFileData *filedata, struct mesh_data *mesh_data, DWORD provide_flags)
 {
-    unsigned int skin_weights_info_count = 0;
     ID3DXFileData *child = NULL;
+    mesh_parse_func parse_func;
     const BYTE *data, *in_ptr;
     DWORD *index_out_ptr;
     SIZE_T child_count;
@@ -3194,6 +3254,8 @@ static HRESULT parse_mesh(ID3DXFileData *filedata, struct mesh_data *mesh_data, 
      *     [ ... ]
      * }
      */
+
+    mesh_data->skin_weights_info_count = 0;
 
     hr = filedata->lpVtbl->Lock(filedata, &data_size, (const void **)&data);
     if (FAILED(hr)) return hr;
@@ -3299,38 +3361,8 @@ static HRESULT parse_mesh(ID3DXFileData *filedata, struct mesh_data *mesh_data, 
         if (FAILED(hr))
             goto end;
 
-        if (IsEqualGUID(&type, &TID_D3DRMMeshNormals)) {
-            hr = parse_normals(child, mesh_data);
-        } else if (IsEqualGUID(&type, &TID_D3DRMMeshVertexColors)) {
-            hr = parse_vertex_colors(child, mesh_data);
-        } else if (IsEqualGUID(&type, &TID_D3DRMMeshTextureCoords)) {
-            hr = parse_texture_coords(child, mesh_data);
-        } else if (IsEqualGUID(&type, &TID_D3DRMMeshMaterialList) &&
-                   (provide_flags & PROVIDE_MATERIALS))
-        {
-            hr = parse_material_list(child, mesh_data);
-        } else if (provide_flags & PROVIDE_SKININFO) {
-            if (IsEqualGUID(&type, &DXFILEOBJ_XSkinMeshHeader)) {
-                if (mesh_data->skin_info) {
-                    WARN("Skin mesh header already encountered\n");
-                    hr = E_FAIL;
-                    goto end;
-                }
-                hr = parse_skin_mesh_header(child, mesh_data);
-                if (FAILED(hr))
-                    goto end;
-            } else if (IsEqualGUID(&type, &DXFILEOBJ_SkinWeights)) {
-                if (!mesh_data->skin_info) {
-                    WARN("Skin weights found but skin mesh header not encountered yet\n");
-                    hr = E_FAIL;
-                    goto end;
-                }
-                hr = parse_skin_weights_info(child, mesh_data, skin_weights_info_count);
-                if (FAILED(hr))
-                    goto end;
-                skin_weights_info_count++;
-            }
-        }
+        if ((parse_func = mesh_get_parse_func(&type)))
+            hr = parse_func(child, mesh_data, provide_flags);
         if (FAILED(hr))
             goto end;
 
@@ -3338,10 +3370,10 @@ static HRESULT parse_mesh(ID3DXFileData *filedata, struct mesh_data *mesh_data, 
         child = NULL;
     }
 
-    if (mesh_data->skin_info && (skin_weights_info_count != mesh_data->bone_count))
+    if (mesh_data->skin_info && (mesh_data->skin_weights_info_count != mesh_data->bone_count))
     {
         WARN("Mismatch between skin weights info count %u and bones count %u from skin mesh header.\n",
-                skin_weights_info_count, mesh_data->bone_count);
+                mesh_data->skin_weights_info_count, mesh_data->bone_count);
         hr = E_FAIL;
         goto end;
     }
@@ -3497,6 +3529,19 @@ HRESULT WINAPI D3DXLoadSkinMeshFromXof(struct ID3DXFileData *filedata, DWORD opt
 
     hr = parse_mesh(filedata, &mesh_data, provide_flags);
     if (FAILED(hr)) goto cleanup;
+
+    if (!mesh_data.num_vertices)
+    {
+        if (adjacency_out)
+            *adjacency_out = NULL;
+        if (materials_out)
+            *materials_out = NULL;
+        if (effects_out)
+            *effects_out = NULL;
+        *mesh_out = NULL;
+        hr = D3D_OK;
+        goto cleanup;
+    }
 
     total_vertices = mesh_data.num_vertices;
     if (mesh_data.fvf & D3DFVF_NORMAL) {
@@ -3785,7 +3830,8 @@ static HRESULT filedata_get_name(ID3DXFileData *filedata, char **name)
 }
 
 static HRESULT load_mesh_container(struct ID3DXFileData *filedata, DWORD options, struct IDirect3DDevice9 *device,
-        struct ID3DXAllocateHierarchy *alloc_hier, D3DXMESHCONTAINER **mesh_container)
+        struct ID3DXAllocateHierarchy *alloc_hier, D3DXMESHCONTAINER **mesh_container,
+        struct ID3DXLoadUserData *load_user_data)
 {
     HRESULT hr;
     ID3DXBuffer *adjacency = NULL;
@@ -3795,6 +3841,10 @@ static HRESULT load_mesh_container(struct ID3DXFileData *filedata, DWORD options
     D3DXMESHDATA mesh_data;
     DWORD num_materials = 0;
     char *name = NULL;
+    SIZE_T child_count;
+    ID3DXFileData *child = NULL;
+    GUID type;
+    unsigned int i;
 
     mesh_data.Type = D3DXMESHTYPE_MESH;
     mesh_data.pMesh = NULL;
@@ -3807,14 +3857,38 @@ static HRESULT load_mesh_container(struct ID3DXFileData *filedata, DWORD options
     hr = filedata_get_name(filedata, &name);
     if (FAILED(hr)) goto cleanup;
 
+    if (!mesh_data.pMesh)
+        goto cleanup;
     hr = alloc_hier->lpVtbl->CreateMeshContainer(alloc_hier, name, &mesh_data,
             materials ? ID3DXBuffer_GetBufferPointer(materials) : NULL,
             effects ? ID3DXBuffer_GetBufferPointer(effects) : NULL,
             num_materials,
             adjacency ? ID3DXBuffer_GetBufferPointer(adjacency) : NULL,
             skin_info, mesh_container);
+    if (FAILED(hr) || !load_user_data)
+        goto cleanup;
+
+    hr = filedata->lpVtbl->GetChildren(filedata, &child_count);
+    if (FAILED(hr))
+        goto cleanup;
+
+    for (i = 0; i < child_count; i++)
+    {
+        if (FAILED(hr = filedata->lpVtbl->GetChild(filedata, i, &child)))
+            goto cleanup;
+        if (FAILED(hr = child->lpVtbl->GetType(child, &type)))
+            goto cleanup;
+
+        if (!mesh_get_parse_func(&type)
+                && FAILED(hr = load_user_data->lpVtbl->LoadMeshChildData(load_user_data, *mesh_container, child)))
+            goto cleanup;
+
+        IUnknown_Release(child);
+        child = NULL;
+    }
 
 cleanup:
+    if (child) IUnknown_Release(child);
     if (materials) ID3DXBuffer_Release(materials);
     if (effects) ID3DXBuffer_Release(effects);
     if (adjacency) ID3DXBuffer_Release(adjacency);
@@ -3856,7 +3930,7 @@ static HRESULT parse_transform_matrix(ID3DXFileData *filedata, D3DXMATRIX *trans
 }
 
 static HRESULT load_frame(struct ID3DXFileData *filedata, DWORD options, struct IDirect3DDevice9 *device,
-        struct ID3DXAllocateHierarchy *alloc_hier, D3DXFRAME **frame_out)
+        struct ID3DXAllocateHierarchy *alloc_hier, D3DXFRAME **frame_out, struct ID3DXLoadUserData *load_user_data)
 {
     HRESULT hr;
     GUID type;
@@ -3893,15 +3967,18 @@ static HRESULT load_frame(struct ID3DXFileData *filedata, DWORD options, struct 
             goto err;
 
         if (IsEqualGUID(&type, &TID_D3DRMMesh)) {
-            hr = load_mesh_container(child, options, device, alloc_hier, next_container);
+            hr = load_mesh_container(child, options, device, alloc_hier, next_container, load_user_data);
             if (SUCCEEDED(hr))
                 next_container = &(*next_container)->pNextMeshContainer;
         } else if (IsEqualGUID(&type, &TID_D3DRMFrameTransformMatrix)) {
             hr = parse_transform_matrix(child, &frame->TransformationMatrix);
         } else if (IsEqualGUID(&type, &TID_D3DRMFrame)) {
-            hr = load_frame(child, options, device, alloc_hier, next_child);
+            hr = load_frame(child, options, device, alloc_hier, next_child, load_user_data);
             if (SUCCEEDED(hr))
                 next_child = &(*next_child)->pFrameSibling;
+        } else if (load_user_data) {
+            TRACE("Loading %s as user data.\n", debugstr_guid(&type));
+            hr = load_user_data->lpVtbl->LoadFrameChildData(load_user_data, frame, child);
         }
         if (FAILED(hr))
             goto err;
@@ -3936,11 +4013,6 @@ HRESULT WINAPI D3DXLoadMeshHierarchyFromXInMemory(const void *memory, DWORD memo
 
     if (!memory || !memory_size || !device || !frame_hierarchy || !alloc_hier)
         return D3DERR_INVALIDCALL;
-    if (load_user_data)
-    {
-        FIXME("Loading user data not implemented.\n");
-        return E_NOTIMPL;
-    }
 
     hr = D3DXFileCreate(&d3dxfile);
     if (FAILED(hr)) goto cleanup;
@@ -3974,11 +4046,15 @@ HRESULT WINAPI D3DXLoadMeshHierarchyFromXInMemory(const void *memory, DWORD memo
 
                 D3DXMatrixIdentity(&(*next_frame)->TransformationMatrix);
 
-                hr = load_mesh_container(filedata, options, device, alloc_hier, &(*next_frame)->pMeshContainer);
+                hr = load_mesh_container(filedata, options, device, alloc_hier, &(*next_frame)->pMeshContainer,
+                        load_user_data);
                 if (FAILED(hr)) goto cleanup;
             } else if (IsEqualGUID(&guid, &TID_D3DRMFrame)) {
-                hr = load_frame(filedata, options, device, alloc_hier, next_frame);
+                hr = load_frame(filedata, options, device, alloc_hier, next_frame, load_user_data);
                 if (FAILED(hr)) goto cleanup;
+            } else if (load_user_data) {
+                TRACE("Loading %s as user data.\n", debugstr_guid(&guid));
+                hr = load_user_data->lpVtbl->LoadTopLevelData(load_user_data, filedata);
             }
             while (*next_frame)
                 next_frame = &(*next_frame)->pFrameSibling;
@@ -4192,13 +4268,21 @@ static HRESULT parse_frame(struct ID3DXFileData *filedata, DWORD options, struct
                 hr = E_OUTOFMEMORY;
                 goto err;
             }
-            list_add_tail(container_list, &container->entry);
-            container->transform = transform;
 
             hr = D3DXLoadSkinMeshFromXof(child, options, device,
                     (provide_flags & PROVIDE_ADJACENCY) ? &container->adjacency : NULL,
                     (provide_flags & PROVIDE_MATERIALS) ? &container->materials : NULL,
                     NULL, &container->num_materials, NULL, &container->mesh);
+
+            if (container->mesh)
+            {
+                list_add_tail(container_list, &container->entry);
+                container->transform = transform;
+            }
+            else
+            {
+                HeapFree(GetProcessHeap(), HEAP_ZERO_MEMORY, container);
+            }
         } else if (IsEqualGUID(&type, &TID_D3DRMFrameTransformMatrix)) {
             D3DXMATRIX new_transform;
             hr = parse_transform_matrix(child, &new_transform);
@@ -4286,13 +4370,20 @@ HRESULT WINAPI D3DXLoadMeshFromXInMemory(const void *memory, DWORD memory_size, 
                     hr = E_OUTOFMEMORY;
                     goto cleanup;
                 }
-                list_add_tail(&container_list, &container_ptr->entry);
-                D3DXMatrixIdentity(&container_ptr->transform);
 
                 hr = D3DXLoadSkinMeshFromXof(filedata, options, device,
                         (provide_flags & PROVIDE_ADJACENCY) ? &container_ptr->adjacency : NULL,
                         (provide_flags & PROVIDE_MATERIALS) ? &container_ptr->materials : NULL,
                         NULL, &container_ptr->num_materials, NULL, &container_ptr->mesh);
+                if (container_ptr->mesh)
+                {
+                    list_add_tail(&container_list, &container_ptr->entry);
+                    D3DXMatrixIdentity(&container_ptr->transform);
+                }
+                else
+                {
+                    HeapFree(GetProcessHeap(), 0, container_ptr);
+                }
             } else if (IsEqualGUID(&guid, &TID_D3DRMFrame)) {
                 hr = parse_frame(filedata, options, device, &identity, &container_list, provide_flags);
             }
@@ -7538,6 +7629,24 @@ done:
     HeapFree(GetProcessHeap(), 0, point_reps);
 
     return hr;
+}
+
+/*************************************************************************
+ * D3DXComputeTangent    (D3DX9_36.@)
+ */
+HRESULT WINAPI D3DXComputeTangent(ID3DXMesh *mesh, DWORD stage_idx, DWORD tangent_idx,
+        DWORD binorm_idx, DWORD wrap, const DWORD *adjacency)
+{
+    TRACE("mesh %p, stage_idx %ld, tangent_idx %ld, binorm_idx %ld, wrap %ld, adjacency %p.\n",
+           mesh, stage_idx, tangent_idx, binorm_idx, wrap, adjacency);
+
+    return D3DXComputeTangentFrameEx( mesh, D3DDECLUSAGE_TEXCOORD, stage_idx,
+            ( binorm_idx == D3DX_DEFAULT ) ? D3DX_DEFAULT : D3DDECLUSAGE_BINORMAL,
+            binorm_idx,
+            ( tangent_idx == D3DX_DEFAULT ) ? D3DX_DEFAULT : D3DDECLUSAGE_TANGENT,
+            tangent_idx, D3DX_DEFAULT, 0,
+            ( wrap ? D3DXTANGENT_WRAP_UV : 0 ) | D3DXTANGENT_GENERATE_IN_PLACE | D3DXTANGENT_ORTHOGONALIZE_FROM_U,
+            adjacency, -1.01f, -0.01f, -1.01f, NULL, NULL);
 }
 
 /*************************************************************************

@@ -806,8 +806,9 @@ static NTSTATUS pulse_test_connect(void *args)
     list_init(&g_phys_speakers);
     list_init(&g_phys_sources);
 
-    pulse_add_device(&g_phys_speakers, NULL, 0, Speakers, 0, "", "PulseAudio");
-    pulse_add_device(&g_phys_sources, NULL, 0, Microphone, 0, "", "PulseAudio");
+    /* Burnout Paradise Remastered expects device name to have a space. */
+    pulse_add_device(&g_phys_speakers, NULL, 0, Speakers, 0, "", "PulseAudio Output");
+    pulse_add_device(&g_phys_sources, NULL, 0, Microphone, 0, "", "PulseAudio Input");
 
     o = pa_context_get_sink_info_list(pulse_ctx, &pulse_phys_speakers_cb, NULL);
     if (o) {
@@ -2368,8 +2369,7 @@ static NTSTATUS pulse_get_prop_value(void *args)
         if (strcmp(params->device, dev->pulse_name))
             continue;
         if (IsEqualPropertyKey(*params->prop, devicepath_key)) {
-            if (!get_device_path(dev, params))
-                break;
+            get_device_path(dev, params);
             return STATUS_SUCCESS;
         } else if (IsEqualGUID(&params->prop->fmtid, &PKEY_AudioEndpoint_GUID)) {
             switch (params->prop->pid) {

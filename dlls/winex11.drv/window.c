@@ -1181,8 +1181,6 @@ void update_user_time( Time time )
  * windows spanning multiple monitors */
 static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
 {
-    RECT window_rect = data->whole_rect, monitor_rect;
-    HMONITOR hmonitor;
     long monitors[4];
     XEvent xev;
 
@@ -1195,26 +1193,42 @@ static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
     if (!X11DRV_DisplayDevices_SupportEventHandlers())
         return;
 
-    if (!(hmonitor = fs_hack_monitor_from_hwnd( data->hwnd )))
+    if (!xinerama_get_fullscreen_monitors( &data->whole_rect, monitors ))
     {
-        ERR( "Failed to find monitor for %p at %s\n", data->hwnd, wine_dbgstr_rect(&data->whole_rect) );
+        ERR( "Failed to find xinerama monitors at %s\n", wine_dbgstr_rect(&data->whole_rect) );
         return;
     }
 
-    monitor_rect = fs_hack_current_mode( hmonitor );
-    intersect_rect( &window_rect, &monitor_rect, &window_rect );
-    if (!EqualRect( &window_rect, &data->whole_rect ))
+    /* If _NET_WM_FULLSCREEN_MONITORS is not set and the fullscreen monitors are spanning only one
+     * monitor then do not set _NET_WM_FULLSCREEN_MONITORS.
+     *
+     * If _NET_WM_FULLSCREEN_MONITORS is set then the property needs to be updated because it can't
+     * be deleted by sending a _NET_WM_FULLSCREEN_MONITORS client message to the root window
+     * according to the wm-spec version 1.4. Having the window spanning more than two monitors also
+     * needs the property set. In other cases, _NET_WM_FULLSCREEN_MONITORS doesn't need to be set.
+     * What's more, setting _NET_WM_FULLSCREEN_MONITORS adds a constraint on Mutter so that such a
+     * window can't be moved to another monitor by using the Shift+Super+Up/Down/Left/Right
+     * shortcut. So the property should be added only when necessary. */
+    if (monitors[0] == monitors[1] && monitors[1] == monitors[2] && monitors[2] == monitors[3])
     {
-        ERR( "hwnd %p at %s is outside of monitor %p at %s, ignoring\n", data->hwnd,
-             wine_dbgstr_rect(&data->whole_rect), hmonitor, wine_dbgstr_rect(&monitor_rect) );
-        return;
-    }
+        unsigned long count, remaining;
+        BOOL prop_found = FALSE;
+        long *prop_data;
+        int format;
+        Atom type;
 
-    monitor_rect = fs_hack_real_mode( hmonitor );
-    if (!xinerama_get_fullscreen_monitors( &monitor_rect, monitors ))
-    {
-        ERR( "Failed to find xinerama monitors for %p at %s\n", hmonitor, wine_dbgstr_rect(&monitor_rect) );
-        return;
+        if (!XGetWindowProperty( data->display, data->whole_window,
+                                 x11drv_atom(_NET_WM_FULLSCREEN_MONITORS), 0, ~0, False,
+                                 XA_CARDINAL, &type, &format, &count, &remaining,
+                                 (unsigned char **)&prop_data ))
+        {
+            if (type == XA_CARDINAL && format == 32 && count == 4)
+                prop_found = TRUE;
+            XFree(prop_data);
+        }
+
+        if (!prop_found)
+            return;
     }
 
     if (!data->mapped)
@@ -1331,7 +1345,9 @@ void update_net_wm_states( struct x11drv_win_data *data )
 
             if (i == NET_WM_STATE_FULLSCREEN)
             {
-                data->pending_fullscreen = (new_state & (1 << i)) != 0;
+                data->pending_fullscreen = (new_state & (1 << i))
+                                            && !(data->net_wm_state & (1 << NET_WM_STATE_FULLSCREEN)
+                                                 && wm_is_steamcompmgr(data->display));
                 TRACE( "set pending_fullscreen to: %u\n", data->pending_fullscreen );
             }
 
@@ -1409,6 +1425,19 @@ static void set_xembed_flags( struct x11drv_win_data *data, unsigned long flags 
                      x11drv_atom(_XEMBED_INFO), 32, PropModeReplace, (unsigned char*)info, 2 );
 }
 
+static int skip_iconify( Display *display )
+{
+    static int cached = -1;
+    const char *env;
+
+    if (cached == -1)
+    {
+        FIXME( "HACK: skip_iconify.\n" );
+        cached = wm_is_steamcompmgr( display ) && (env = getenv( "SteamGameId" )) && !strcmp( env, "1827980" );
+    }
+
+    return cached;
+}
 
 /***********************************************************************
  *     map_window
@@ -1435,7 +1464,7 @@ static void map_window( HWND hwnd, DWORD new_style )
             sync_window_style( data );
             XMapWindow( data->display, data->whole_window );
             /* Mutter always unminimizes windows when handling map requests. Restore iconic state */
-            if (new_style & WS_MINIMIZE)
+            if (new_style & WS_MINIMIZE && !skip_iconify( data->display ))
                 XIconifyWindow( data->display, data->whole_window, data->vis.screen );
             XFlush( data->display );
             if (data->surface && data->vis.visualid != default_visual.visualid)
@@ -3026,7 +3055,7 @@ static void window_update_fshack( struct x11drv_win_data *data, const RECT *wind
 
         client_rect_host.right = min( max( client_rect_host.right, 1 ), 65535 );
         client_rect_host.bottom = min( max( client_rect_host.bottom, 1 ), 65535 );
-        XMoveResizeWindow( gdi_display, data->client_window, top_left.x, top_left.y, client_rect_host.right, client_rect_host.bottom );
+        XMoveResizeWindow( data->display, data->client_window, top_left.x, top_left.y, client_rect_host.right, client_rect_host.bottom );
 
         sync_gl_drawable( data->hwnd, !data->whole_window );
         invalidate_vk_surfaces( data->hwnd );
@@ -3309,14 +3338,36 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
             TRACE( "changing win %p iconic state to %u\n", data->hwnd, data->iconic );
             if (data->iconic)
             {
-                XIconifyWindow( data->display, data->whole_window, data->vis.screen );
+                if (!skip_iconify( data->display ))
+                {
+                    /* XIconifyWindow is essentially a no-op on Gamescope but has a side effect.
+                     * Gamescope handles wm state change to iconic and immediately changes it back to normal.
+                     * Upon that change back we would receive WM_STATE change notification and kick the window
+                     * out of minimized state even if the window is not focused by Gamescope (possibly breaking Win-side
+                     * focus and leading to hangs).
+                     * Depending on what the game is going, various things may happen if we avoid that:
+                     *  - Gamescope may change WM_STATE later when focusing our window and we will get the window out of minimized state correctly;
+                     *  - The game might have no other windows and it just decided to minimize itself
+                     *    (e. g., before opening Web browser), expecting the user to unminimize it manually which
+                     *    is not possible on Gamescope. Ideally we'd have a way to detect such a case and unminimize
+                     *    when needed, but without that just let Gamescope unminimize immediately avoiding that for
+                     *    selected game(s) only. */
+                    XIconifyWindow( data->display, data->whole_window, data->vis.screen );
+                }
             }
             else if (is_window_rect_mapped( rectWindow ))
             {
                 /* whole_window could be both iconic and mapped. Since XMapWindow() doesn't do
                  * anything if the window is already mapped, we need to unmap it first */
                 if (data->mapped)
+                {
+                    if (wm_is_steamcompmgr( data->display ))
+                    {
+                        /* Gamescope will generate FocusOut event upon processing UnmapNotify. Ignore it. */
+                        data->fake_unmap_serial = NextRequest( data->display );
+                    }
                     XUnmapWindow( data->display, data->whole_window );
+                }
                 XMapWindow( data->display, data->whole_window );
             }
             update_net_wm_states( data );
@@ -3400,7 +3451,7 @@ UINT X11DRV_ShowWindow( HWND hwnd, INT cmd, RECT *rect, UINT swp )
                   &root, &x, &y, &width, &height, &border, &depth );
     XTranslateCoordinates( thread_data->display, data->whole_window, root, 0, 0, &x, &y, &top );
     pos = root_to_virtual_screen( x, y );
-    monitor = fs_hack_monitor_from_hwnd( hwnd );
+    monitor = fs_hack_monitor_from_rect( rect );
     if (data->fs_hack ||
         (fs_hack_enabled( monitor ) &&
          fs_hack_matches_current_mode( monitor, rect->right - rect->left, rect->bottom - rect->top )))

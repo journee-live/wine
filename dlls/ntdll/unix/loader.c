@@ -2283,6 +2283,7 @@ BOOL no_priv_elevation;
 BOOL localsystem_sid;
 BOOL high_dll_addresses;
 BOOL simulate_writecopy;
+BOOL wine_allocs_2g_limit;
 SIZE_T kernel_stack_size = 0x100000;
 
 static void hacks_init(void)
@@ -2345,19 +2346,26 @@ static void hacks_init(void)
     env_str = getenv("WINE_FSYNC_YIELD_TO_WAITERS");
     if (env_str)
         fsync_yield_to_waiters = !!atoi(env_str);
-    else if (sgi) fsync_yield_to_waiters = !strcmp(sgi, "292120");
+    else if (sgi) fsync_yield_to_waiters = !strcmp(sgi, "292120") || !strcmp(sgi, "345350") || !strcmp(sgi, "292140");
     if (fsync_yield_to_waiters)
         ERR("HACK: fsync: yield to waiters.\n");
 
 
     env_str = getenv("WINE_SIMULATE_WRITECOPY");
     if (env_str) simulate_writecopy = atoi(env_str);
-    else if (main_argc > 1 && strstr(main_argv[1], "UplayWebCore.exe")) simulate_writecopy = TRUE;
+    else if (main_argc > 1 &&
+                          (strstr(main_argv[1], "UplayWebCore.exe")
+                           || (strstr(main_argv[1], "Battle.net.exe"))))
+        simulate_writecopy = TRUE;
     else if (sgi) simulate_writecopy = !strcmp(sgi, "1608730") /* Dawn of Corruption */
                                        || !strcmp(sgi, "1680700") /* Purgo box */
                                        || !strcmp(sgi, "2095300") /* Breakout 13 */
                                        || !strcmp(sgi, "2053940") /* Idol Hands 2 */
+                                       || !strcmp(sgi, "391150") /* Red Tie Runner */
                                        || !strcmp(sgi, "2176450"); /* Mr. Hopp's Playhouse 3 */
+
+    if (sgi) wine_allocs_2g_limit = !strcmp(sgi, "359870");
+    if (wine_allocs_2g_limit) ERR("Allocation 2g limit enabled.\n");
 
     if (main_argc > 1 && strstr(main_argv[1], "MicrosoftEdgeUpdate.exe"))
     {

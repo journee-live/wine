@@ -105,7 +105,32 @@ static BOOL is_fanatec_pedals(WORD vid, WORD pid)
     return FALSE;
 }
 
-BOOL is_hidraw_enabled(WORD vid, WORD pid)
+static BOOL is_vkb_controller(WORD vid, WORD pid, INT buttons)
+{
+    if (vid != 0x231D) return FALSE;
+
+    /* comes with 128 buttons in the default configuration */
+    if (buttons == 128) return TRUE;
+
+    /* if customized, less than 128 buttons may be shown, decide by PID */
+    if (pid == 0x0200) return TRUE; /* VKBsim Gladiator EVO Right Grip */
+    if (pid == 0x0201) return TRUE; /* VKBsim Gladiator EVO Left Grip */
+    return FALSE;
+}
+
+static BOOL is_virpil_controller(WORD vid, WORD pid, INT buttons)
+{
+    if (vid != 0x3344) return FALSE;
+
+    /* comes with 31 buttons in the default configuration, or 128 max */
+    if ((buttons == 31) || (buttons == 128)) return TRUE;
+
+    /* if customized, arbitrary amount of buttons may be shown, decide by PID */
+    if (pid == 0x412f) return TRUE; /* Virpil Constellation ALPHA-R */
+    return FALSE;
+}
+
+BOOL is_hidraw_enabled(WORD vid, WORD pid, INT axes, INT buttons)
 {
     const char *enabled = getenv("PROTON_ENABLE_HIDRAW");
     char needle[16];
@@ -115,6 +140,8 @@ BOOL is_hidraw_enabled(WORD vid, WORD pid)
     if (is_thrustmaster_hotas(vid, pid)) return TRUE;
     if (is_simucube_wheel(vid, pid)) return TRUE;
     if (is_fanatec_pedals(vid, pid)) return TRUE;
+    if (is_vkb_controller(vid, pid, buttons)) return TRUE;
+    if (is_virpil_controller(vid, pid, buttons)) return TRUE;
 
     sprintf(needle, "0x%04x/0x%04x", vid, pid);
     if (enabled) return strcasestr(enabled, needle) != NULL;

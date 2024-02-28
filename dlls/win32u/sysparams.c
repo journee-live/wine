@@ -1381,7 +1381,7 @@ static void add_gpu( const struct gdi_gpu *gpu, void *param )
             break;
         /* AMD */
         case 0x1002:
-            sprintf( buffer, "31.0.14051.5006" );
+            sprintf( buffer, "31.0.21902.5" );
             break;
         /* Nvidia */
         case 0x10de:
@@ -1662,7 +1662,6 @@ static BOOL update_display_cache_from_registry(void)
     struct monitor *monitor, *monitor2;
     HANDLE mutex = NULL;
     NTSTATUS status;
-    BOOL ret;
 
     /* If user driver did initialize the registry, then exit */
     if (!video_key && !(video_key = reg_open_key( NULL, devicemap_video_keyW,
@@ -1720,14 +1719,18 @@ static BOOL update_display_cache_from_registry(void)
         }
     }
 
-    if ((ret = !list_empty( &adapters ) && !list_empty( &monitors )))
-        last_query_display_time = key.LastWriteTime.QuadPart;
+    if (list_empty( &adapters ))
+    {
+        WARN( "No adapters found.\n" );
+        assert( list_empty( &monitors ));
+    }
+    else if (!list_empty( &monitors )) last_query_display_time = key.LastWriteTime.QuadPart;
     pthread_mutex_unlock( &display_lock );
     release_display_device_init_mutex( mutex );
-    return ret;
+    return TRUE;
 }
 
-static BOOL update_display_cache( BOOL force )
+static BOOL update_display_cache( BOOL force, BOOL increment_serial )
 {
     static ULONG last_update_serial;
 
@@ -1809,6 +1812,9 @@ static BOOL update_display_cache( BOOL force )
     }
     release_display_manager_ctx( &ctx );
 
+    if (increment_serial && global_shared)
+        global_serial = InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
+
     if (!update_display_cache_from_registry())
     {
         if (force)
@@ -1823,7 +1829,7 @@ static BOOL update_display_cache( BOOL force )
             return FALSE;
         }
 
-        return update_display_cache( TRUE );
+        return update_display_cache( TRUE, FALSE );
     }
 
     InterlockedCompareExchange( (LONG *)&last_update_serial, global_serial, current_serial );
@@ -1832,7 +1838,7 @@ static BOOL update_display_cache( BOOL force )
 
 static BOOL lock_display_devices(void)
 {
-    if (!update_display_cache( FALSE )) return FALSE;
+    if (!update_display_cache( FALSE, FALSE )) return FALSE;
     pthread_mutex_lock( &display_lock );
     return TRUE;
 }
@@ -2454,6 +2460,8 @@ static DEVMODEW *get_display_settings( const WCHAR *devname, const DEVMODEW *dev
     struct adapter *adapter;
     BOOL ret;
 
+    if (list_empty( &adapters )) return NULL;
+
     /* allocate an extra mode for easier iteration */
     if (!(displays = calloc( list_count( &adapters ) + 1, sizeof(DEVMODEW) ))) return NULL;
     mode = displays;
@@ -2671,7 +2679,6 @@ static BOOL all_detached_settings( const DEVMODEW *displays )
 static LONG apply_display_settings( const WCHAR *devname, const DEVMODEW *devmode,
                                     HWND hwnd, DWORD flags, void *lparam )
 {
-    volatile struct global_shared_memory *global_shared = get_global_shared_memory();
     WCHAR primary_name[CCHDEVICENAME];
     struct display_device *primary;
     DEVMODEW *mode, *displays;
@@ -2715,8 +2722,7 @@ static LONG apply_display_settings( const WCHAR *devname, const DEVMODEW *devmod
     free( displays );
     if (ret) return ret;
 
-    if (global_shared) InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
-    if (!update_display_cache( TRUE ))
+    if (!update_display_cache( TRUE, TRUE ))
         WARN( "Failed to update display cache after mode change.\n" );
 
     if ((adapter = find_adapter( NULL )))
@@ -6011,11 +6017,36 @@ NTSTATUS WINAPI NtUserDisplayConfigGetDeviceInfo( DISPLAYCONFIG_DEVICE_INFO_HEAD
 
         return STATUS_NOT_SUPPORTED;
     }
+    case DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO:
+    {
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *info = (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *)packet;
+        const char *env;
+
+        FIXME( "DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO semi-stub.\n" );
+
+        if (packet->size < sizeof(*info))
+            return STATUS_INVALID_PARAMETER;
+
+        info->advancedColorSupported = 0;
+        info->advancedColorEnabled = 0;
+        info->wideColorEnforced = 0;
+        info->advancedColorForceDisabled = 0;
+        info->colorEncoding = DISPLAYCONFIG_COLOR_ENCODING_RGB;
+        info->bitsPerColorChannel = 8;
+        if ((env = getenv("DXVK_HDR")) && *env == '1')
+        {
+            TRACE( "HDR is enabled.\n" );
+            info->advancedColorSupported = 1;
+            info->advancedColorEnabled = 1;
+            info->bitsPerColorChannel = 10;
+        }
+
+        return STATUS_SUCCESS;
+    }
     case DISPLAYCONFIG_DEVICE_INFO_SET_TARGET_PERSISTENCE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_BASE_TYPE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_SUPPORT_VIRTUAL_RESOLUTION:
     case DISPLAYCONFIG_DEVICE_INFO_SET_SUPPORT_VIRTUAL_RESOLUTION:
-    case DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO:
     case DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL:
     default:
