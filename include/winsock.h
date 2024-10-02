@@ -481,8 +481,6 @@ WINSOCK_API_LINKAGE int WINAPI __WSAFDIsSet(SOCKET,WS(fd_set)*);
 #endif /* WS_DEFINE_SELECT */
 
 /* we have to define hton/ntoh as macros to avoid conflicts with Unix headers */
-#ifndef USE_WS_PREFIX
-
 #undef htonl
 #undef htons
 #undef ntohl
@@ -519,8 +517,6 @@ static inline ULONG __wine_ulong_swap(ULONG l)
 #define ntohs __wine_ushort_swap
 
 #endif  /* WORDS_BIGENDIAN */
-
-#endif  /* USE_WS_PREFIX */
 
 /*
  * Internet address (old style... should be updated)

@@ -712,6 +712,7 @@ SOURCES = \
 	srrestoreptapi.h \
 	sspi.h \
 	stamp-h.in \
+	stdole32.idl \
 	stgprop.h \
 	sti.h \
 	storage.h \
@@ -819,6 +820,8 @@ SOURCES = \
 	windows.media.idl \
 	windows.media.speechrecognition.idl \
 	windows.media.speechsynthesis.idl \
+	windows.networking.idl \
+	windows.networking.connectivity.idl \
 	windows.security.cryptography.idl \
 	windows.security.exchangeactivesyncprovisioning.idl \
 	windows.storage.streams.idl \

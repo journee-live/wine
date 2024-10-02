@@ -1420,6 +1420,18 @@ typedef enum {
 void     WINAPI InstallHinfSectionA( HWND hwnd, HINSTANCE handle, PCSTR cmdline, INT show );
 void     WINAPI InstallHinfSectionW( HWND hwnd, HINSTANCE handle, PCWSTR cmdline, INT show );
 #define         InstallHinfSection WINELIB_NAME_AW(InstallHinfSection)
+BOOL     WINAPI IsUserAdmin(VOID);
+PWSTR    WINAPI MultiByteToUnicode(PCSTR lpMultiByteStr, UINT uCodePage);
+VOID     WINAPI MyFree(PVOID lpMem);
+PVOID    WINAPI MyMalloc(DWORD dwSize);
+PVOID    WINAPI MyRealloc(PVOID lpSrc, DWORD dwSize);
+DWORD    WINAPI OpenAndMapForRead(PCWSTR, PDWORD, PHANDLE, PHANDLE, PVOID *);
+LONG     WINAPI QueryRegistryValue(HKEY, PCWSTR, PBYTE *, PDWORD, PDWORD);
+/* RetreiveFileSecurity is not a typo, as per Microsoft's dlls */
+DWORD    WINAPI RetreiveFileSecurity(PCWSTR, PSECURITY_DESCRIPTOR *);
+BOOL     WINAPI SetupAddInstallSectionToDiskSpaceListA(HDSKSPC, HINF, HINF, PCSTR, PVOID, UINT);
+BOOL     WINAPI SetupAddInstallSectionToDiskSpaceListW(HDSKSPC, HINF, HINF, PCWSTR, PVOID, UINT);
+#define         SetupAddInstallSectionToDiskSpaceList WINELIB_NAME_AW(SetupAddInstallSectionToDiskSpaceList)
 BOOL     WINAPI SetupAddSectionToDiskSpaceListA(HDSKSPC, HINF, HINF, PCSTR, UINT, PVOID, UINT);
 BOOL     WINAPI SetupAddSectionToDiskSpaceListW(HDSKSPC, HINF, HINF, PCWSTR, UINT, PVOID, UINT);
 #define         SetupAddSectionToDiskSpaceList WINELIB_NAME_AW(SetupAddSectionToDiskSpaceList)

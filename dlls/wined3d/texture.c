@@ -1258,7 +1258,7 @@ void wined3d_gl_texture_swizzle_from_color_fixup(GLint swizzle[4], struct color_
 }
 
 /* Context activation is done by the caller. */
-void wined3d_texture_gl_bind(struct wined3d_texture_gl *texture_gl,
+GLuint wined3d_texture_get_name(struct wined3d_texture_gl *texture_gl,
         struct wined3d_context_gl *context_gl, BOOL srgb)
 {
     const struct wined3d_format *format = texture_gl->t.resource.format;
@@ -1282,10 +1282,7 @@ void wined3d_texture_gl_bind(struct wined3d_texture_gl *texture_gl,
     target = texture_gl->target;
 
     if (gl_tex->name)
-    {
-        wined3d_context_gl_bind_texture(context_gl, target, gl_tex->name);
-        return;
-    }
+        return gl_tex->name;
 
     gl_info->gl_ops.gl.p_glGenTextures(1, &gl_tex->name);
     checkGLcall("glGenTextures");
@@ -1294,7 +1291,7 @@ void wined3d_texture_gl_bind(struct wined3d_texture_gl *texture_gl,
     if (!gl_tex->name)
     {
         ERR("Failed to generate a texture name.\n");
-        return;
+        return 0;
     }
 
     /* Initialise the state of the texture object to the OpenGL defaults, not
@@ -1378,6 +1375,15 @@ void wined3d_texture_gl_bind(struct wined3d_texture_gl *texture_gl,
         gl_info->gl_ops.gl.p_glTexParameteriv(target, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
         checkGLcall("set format swizzle");
     }
+
+    return gl_tex->name;
+}
+
+/* Context activation is done by the caller. */
+void wined3d_texture_gl_bind(struct wined3d_texture_gl *texture_gl,
+        struct wined3d_context_gl *context_gl, BOOL srgb)
+{
+    wined3d_context_gl_bind_texture(context_gl, texture_gl->target, wined3d_texture_get_name(texture_gl, context_gl, srgb));
 }
 
 /* Context activation is done by the caller. */
@@ -2923,6 +2929,7 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
     struct wined3d_bo *dst_bo;
     BOOL srgb = FALSE;
     GLenum target;
+    struct wined3d_texture_sub_resource *sub_resource;
 
     TRACE("context %p, src_texture %p, src_sub_resource_idx %u, src_location %s, src_box %s, dst_bo_addr %s, "
             "dst_format %s, dst_x %u, dst_y %u, dst_z %u, dst_row_pitch %u, dst_slice_pitch %u.\n",
@@ -2977,6 +2984,7 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
 
     format_gl = wined3d_format_gl(src_texture->resource.format);
     target = wined3d_texture_gl_get_sub_resource_target(src_texture_gl, src_sub_resource_idx);
+    sub_resource = &src_texture->sub_resources[src_sub_resource_idx];
 
     if ((src_texture->resource.type == WINED3D_RTYPE_TEXTURE_2D
             && (target == GL_TEXTURE_2D_ARRAY || format_gl->f.conv_byte_count
@@ -3014,6 +3022,23 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
 
         GL_EXTCALL(glGetCompressedTexImage(target, src_level, offset));
         checkGLcall("glGetCompressedTexImage");
+    }
+    else if (dst_bo_addr->buffer_object && src_texture->resource.bind_flags & WINED3D_BIND_RENDER_TARGET)
+    {
+        /* PBO texture download is not accelerated on Mesa. Use glReadPixels if possible. */
+        TRACE("Downloading (glReadPixels) texture %p, %u, level %u, format %#x, type %#x, data %p.\n",
+                src_texture, src_sub_resource_idx, src_level, format_gl->format, format_gl->type, dst_bo_addr->addr);
+
+        wined3d_context_gl_apply_fbo_state_blit(context_gl, GL_READ_FRAMEBUFFER, &src_texture->resource, src_sub_resource_idx, NULL,
+                0, sub_resource->locations & (WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_TEXTURE_SRGB));
+        wined3d_context_gl_check_fbo_status(context_gl, GL_READ_FRAMEBUFFER);
+        context_invalidate_state(context, STATE_FRAMEBUFFER);
+        gl_info->gl_ops.gl.p_glReadBuffer(GL_COLOR_ATTACHMENT0);
+        checkGLcall("glReadBuffer()");
+
+        gl_info->gl_ops.gl.p_glReadPixels(0, 0, wined3d_texture_get_level_width(src_texture, src_level),
+                wined3d_texture_get_level_height(src_texture, src_level), format_gl->format, format_gl->type, dst_bo_addr->addr);
+        checkGLcall("glReadPixels");
     }
     else
     {

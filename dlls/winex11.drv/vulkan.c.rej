@@ -1,0 +1,35 @@
+--- dlls/winex11.drv/vulkan.c
++++ dlls/winex11.drv/vulkan.c
+@@ -1281,32 +1281,3 @@ const struct vulkan_funcs *get_vulkan_driver(UINT version)
+     return NULL;
+ }
+ 
+-#else /* No vulkan */
+-
+-const struct vulkan_funcs *get_vulkan_driver(UINT version)
+-{
+-    ERR("Wine was built without Vulkan support.\n");
+-    return NULL;
+-}
+-
+-void destroy_vk_surface(HWND hwnd)
+-{
+-}
+-
+-void resize_vk_surfaces(HWND hwnd, Window active, int mask, XWindowChanges *changes)
+-{
+-}
+-
+-void sync_vk_surface(HWND hwnd, BOOL known_child)
+-{
+-}
+-
+-void invalidate_vk_surfaces(HWND hwnd)
+-{
+-}
+-
+-void vulkan_thread_detach(void)
+-{
+-}
+-
+-#endif /* SONAME_LIBVULKAN */

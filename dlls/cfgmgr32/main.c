@@ -21,6 +21,14 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(setupapi);
 
+CONFIGRET WINAPI CM_Register_Notification( CM_NOTIFY_FILTER *filter, void *context,
+                                           PCM_NOTIFY_CALLBACK callback, HCMNOTIFICATION *notify_context )
+{
+    FIXME("%p %p %p %p stub!\n", filter, context, callback, notify_context);
+
+    return CR_CALL_NOT_IMPLEMENTED;
+}
+
 /***********************************************************************
  *           CM_MapCrToWin32Err (cfgmgr32.@)
  */
