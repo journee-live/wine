@@ -186,6 +186,19 @@ int WINAPI getaddrinfo( const char *node, const char *service,
 
     if (node)
     {
+        char sgi[64];
+        /* default -- if star citizen and url is modules-cdn.eac-prod.on.epicgames.com, block */
+        if (GetEnvironmentVariableA("SteamGameId", sgi, sizeof(sgi)) && !strcmp(sgi, "starcitizen"))
+        {
+            TRACE( "node %s, matched sgi %s\n", debugstr_a(node), debugstr_a(sgi) );
+            if (!strcmp(node, "modules-cdn.eac-prod.on.epicgames.com"))
+            {
+               SetLastError(WSAHOST_NOT_FOUND);
+               return WSAHOST_NOT_FOUND;
+            }
+        }
+        TRACE( "node %s, unmatched sgi %s\n", debugstr_a(node), debugstr_a(sgi) );
+
         if (eac_download_hack() && !strcmp(node, "download-alt.easyanticheat.net"))
         {
             SetLastError(WSAHOST_NOT_FOUND);
@@ -949,6 +962,19 @@ struct hostent * WINAPI gethostbyname( const char *name )
         SetLastError( WSANOTINITIALISED );
         return NULL;
     }
+    
+    char sgi[64];
+    /* default -- if star citizen and url is modules-cdn.eac-prod.on.epicgames.com, block */
+    if (GetEnvironmentVariableA("SteamGameId", sgi, sizeof(sgi)) && !strcmp(sgi, "starcitizen"))
+    {
+        TRACE( "name %s, matched sgi %s\n", debugstr_a(name), debugstr_a(sgi) );
+        if (name && !strcmp(name, "modules-cdn.eac-prod.on.epicgames.com"))
+        {
+            SetLastError( WSAHOST_NOT_FOUND );
+            return NULL;
+        }
+    }
+    TRACE( "name %s, unmatched sgi %s\n", debugstr_a(name), debugstr_a(sgi) );
 
     if (eac_download_hack() && name && !strcmp(name, "download-alt.easyanticheat.net"))
     {

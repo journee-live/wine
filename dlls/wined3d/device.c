@@ -578,6 +578,59 @@ void wined3d_device_destroy_default_samplers(struct wined3d_device *device)
     device->null_sampler = NULL;
 }
 
+static GLuint64 create_dummy_sampler_handle(struct wined3d_device *device, struct wined3d_context_gl *context_gl,
+        GLuint texture)
+{
+    const struct wined3d_gl_info *gl_info = context_gl->gl_info;
+    GLuint64 handle;
+
+    handle = GL_EXTCALL(glGetTextureSamplerHandleARB(texture, wined3d_sampler_gl(device->default_sampler)->name));
+    GL_EXTCALL(glMakeTextureHandleResidentARB(handle));
+    checkGLcall("glMakeTextureHandleResidentARB");
+    return handle;
+}
+
+/* Context activation is done by the caller. */
+static void create_dummy_sampler_handles(struct wined3d_device *device, struct wined3d_context_gl *context_gl)
+{
+    const struct wined3d_gl_info *gl_info = context_gl->gl_info;
+    const struct wined3d_dummy_textures *textures = &wined3d_device_gl(device)->dummy_textures;
+    struct wined3d_dummy_sampler_handles *handles = &device->dummy_sampler_handles;
+
+    if (!gl_info->supported[ARB_BINDLESS_TEXTURE])
+        return;
+
+    if (gl_info->supported[ARB_TEXTURE_MULTISAMPLE])
+    {
+        handles->tex_2d_ms = create_dummy_sampler_handle(device, context_gl, textures->tex_2d_ms);
+        handles->tex_2d_ms_array = create_dummy_sampler_handle(device, context_gl, textures->tex_2d_ms_array);
+    }
+
+    if (gl_info->supported[ARB_TEXTURE_BUFFER_OBJECT])
+        handles->tex_buffer = create_dummy_sampler_handle(device, context_gl, textures->tex_buffer);
+
+    if (gl_info->supported[EXT_TEXTURE_ARRAY])
+    {
+        handles->tex_2d_array = create_dummy_sampler_handle(device, context_gl, textures->tex_2d_array);
+        handles->tex_1d_array = create_dummy_sampler_handle(device, context_gl, textures->tex_1d_array);
+    }
+
+    if (gl_info->supported[ARB_TEXTURE_CUBE_MAP_ARRAY])
+        handles->tex_cube_array = create_dummy_sampler_handle(device, context_gl, textures->tex_cube_array);
+
+    if (gl_info->supported[ARB_TEXTURE_CUBE_MAP])
+        handles->tex_cube = create_dummy_sampler_handle(device, context_gl, textures->tex_cube);
+
+    if (gl_info->supported[EXT_TEXTURE3D])
+        handles->tex_3d = create_dummy_sampler_handle(device, context_gl, textures->tex_3d);
+
+    if (gl_info->supported[ARB_TEXTURE_RECTANGLE])
+        handles->tex_rect = create_dummy_sampler_handle(device, context_gl, textures->tex_rect);
+
+    handles->tex_2d = create_dummy_sampler_handle(device, context_gl, textures->tex_2d);
+    handles->tex_1d = create_dummy_sampler_handle(device, context_gl, textures->tex_1d);
+}
+
 static bool wined3d_null_image_vk_init(struct wined3d_image_vk *image, struct wined3d_context_vk *context_vk,
         VkCommandBuffer vk_command_buffer, VkImageType type, unsigned int layer_count, unsigned int sample_count)
 {
@@ -1288,6 +1341,7 @@ void wined3d_device_gl_create_primary_opengl_context_cs(void *object)
 
     wined3d_device_gl_create_dummy_textures(device_gl, context_gl);
     wined3d_device_create_default_samplers(device, context);
+    create_dummy_sampler_handles(device, context_gl);
     context_release(context);
 }
 
@@ -1488,6 +1542,29 @@ UINT CDECL wined3d_device_get_available_texture_mem(const struct wined3d_device 
     TRACE("device %p.\n", device);
 
     driver_info = &device->adapter->driver_info;
+
+    /* We can not acquire the context unless there is a swapchain. */
+    /*
+    if (device->swapchains && gl_info->supported[NVX_GPU_MEMORY_INFO] &&
+            !wined3d_settings.emulated_textureram)
+    {
+        GLint vram_free_kb;
+        UINT64 vram_free;
+
+        struct wined3d_context *context = context_acquire(device, NULL, 0);
+        gl_info->gl_ops.gl.p_glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &vram_free_kb);
+        vram_free = (UINT64)vram_free_kb * 1024;
+        context_release(context);
+
+        TRACE("Total 0x%s bytes. emulation 0x%s left, driver 0x%s left.\n",
+                wine_dbgstr_longlong(device->adapter->vram_bytes),
+                wine_dbgstr_longlong(device->adapter->vram_bytes - device->adapter->vram_bytes_used),
+                wine_dbgstr_longlong(vram_free));
+
+        vram_free = min(vram_free, device->adapter->vram_bytes - device->adapter->vram_bytes_used);
+        return min(UINT_MAX, vram_free);
+    }
+    */
 
     TRACE("Emulating 0x%s bytes. 0x%s used, returning 0x%s left.\n",
             wine_dbgstr_longlong(driver_info->vram_bytes),

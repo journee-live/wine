@@ -88,6 +88,7 @@ struct wined3d_adapter;
 struct wined3d_buffer_vk;
 struct wined3d_context;
 struct wined3d_context_vk;
+struct wined3d_context_gl;
 struct wined3d_gl_info;
 struct wined3d_state;
 struct wined3d_swapchain_gl;
@@ -1608,6 +1609,8 @@ struct wined3d_shader_backend_ops
     void (*shader_get_caps)(const struct wined3d_adapter *adapter, struct shader_caps *caps);
     BOOL (*shader_color_fixup_supported)(struct color_fixup_desc fixup);
     BOOL (*shader_has_ffp_proj_control)(void *shader_priv);
+    void (*shader_load_sampler_handles)(void *shader_priv, struct wined3d_context_gl *context_gl,
+            const struct wined3d_state *state, const struct wined3d_shader *shader);
     uint64_t (*shader_compile)(struct wined3d_context *context, const struct wined3d_shader_desc *shader_desc,
         enum wined3d_shader_type shader_type);
 };
@@ -3960,6 +3963,21 @@ struct wined3d_dummy_textures
     GLuint tex_2d_ms_array;
 };
 
+struct wined3d_dummy_sampler_handles
+{
+    GLuint64 tex_1d;
+    GLuint64 tex_2d;
+    GLuint64 tex_rect;
+    GLuint64 tex_3d;
+    GLuint64 tex_cube;
+    GLuint64 tex_cube_array;
+    GLuint64 tex_1d_array;
+    GLuint64 tex_2d_array;
+    GLuint64 tex_buffer;
+    GLuint64 tex_2d_ms;
+    GLuint64 tex_2d_ms_array;
+};
+
 #define WINED3D_UNMAPPED_STAGE ~0u
 
 /* Multithreaded flag. Removed from the public header to signal that
@@ -4034,6 +4052,9 @@ struct wined3d_device
     /* Default sampler used to emulate the direct resource access without using wined3d_sampler */
     struct wined3d_sampler *default_sampler;
     struct wined3d_sampler *null_sampler;
+
+    /* Texture sampler handles for when no texture is mapped */
+    struct wined3d_dummy_sampler_handles dummy_sampler_handles;
 
     /* Command stream */
     struct wined3d_cs *cs;
@@ -4721,6 +4742,8 @@ void wined3d_texture_download_from_texture(struct wined3d_texture *dst_texture, 
 void wined3d_texture_get_bo_address(const struct wined3d_texture *texture,
         unsigned int sub_resource_idx, struct wined3d_bo_address *data, uint32_t location) DECLSPEC_HIDDEN;
 GLenum wined3d_texture_get_gl_buffer(const struct wined3d_texture *texture) DECLSPEC_HIDDEN;
+GLuint wined3d_texture_get_name(struct wined3d_texture_gl *texture_gl,
+        struct wined3d_context_gl *context_gl, BOOL srgb) DECLSPEC_HIDDEN;
 void wined3d_texture_invalidate_location(struct wined3d_texture *texture,
         unsigned int sub_resource_idx, uint32_t location) DECLSPEC_HIDDEN;
 void wined3d_texture_load(struct wined3d_texture *texture,
@@ -5535,6 +5558,8 @@ HRESULT wined3d_shader_resource_view_gl_init(struct wined3d_shader_resource_view
         void *parent, const struct wined3d_parent_ops *parent_ops) DECLSPEC_HIDDEN;
 void wined3d_shader_resource_view_gl_update(struct wined3d_shader_resource_view_gl *srv_gl,
         struct wined3d_context_gl *context_gl) DECLSPEC_HIDDEN;
+GLuint64 wined3d_shader_resource_view_handle(struct wined3d_shader_resource_view *view,
+        struct wined3d_sampler *sampler, struct wined3d_context_gl *context_gl) DECLSPEC_HIDDEN;
 
 struct wined3d_view_vk
 {
