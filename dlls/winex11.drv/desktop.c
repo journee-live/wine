@@ -268,6 +268,7 @@ static BOOL X11DRV_desktop_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **
 {
     struct gdi_adapter *adapter;
 
+    FIXME("count %u", count);
     adapter = calloc( 1, sizeof(*adapter) );
     if (!adapter) return FALSE;
 
