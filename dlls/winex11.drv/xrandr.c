@@ -33,7 +33,6 @@
 #include <X11/extensions/Xrandr.h>
 #include <dlfcn.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include "x11drv.h"
 #include "wine/debug.h"
 
@@ -253,7 +252,6 @@ static BOOL xrandr10_get_current_mode( ULONG_PTR id, DEVMODEW *mode )
         FIXME("Non-primary adapters are unsupported.\n");
         FIXME("THIS IS A TEST\n");
         FIXME("%lu\n", id);
-        printf("%lu", id);
         mode->dmBitsPerPel = 0;
         mode->dmPelsWidth = 0;
         mode->dmPelsHeight = 0;

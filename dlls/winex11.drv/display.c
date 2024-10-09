@@ -264,6 +264,7 @@ BOOL X11DRV_GetCurrentDisplaySettings( LPCWSTR name, BOOL is_primary, LPDEVMODEW
     DEVMODEW mode;
     ULONG_PTR id;
 
+    FIXME("X11DRV_GetCurrentDisplaySettings %lu", id);
     if (!settings_handler.get_id( name, is_primary, &id ) || !settings_handler.get_current_mode( id, &mode ))
     {
         ERR("Failed to get %s current display settings.\n", wine_dbgstr_w(name));
