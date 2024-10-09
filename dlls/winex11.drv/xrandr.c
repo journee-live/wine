@@ -250,6 +250,8 @@ static BOOL xrandr10_get_current_mode( ULONG_PTR id, DEVMODEW *mode )
     if (id != 1)
     {
         FIXME("Non-primary adapters are unsupported.\n");
+        FIXME("THIS IS A TEST\n");
+        FIXME("%ul\n", id);
         mode->dmBitsPerPel = 0;
         mode->dmPelsWidth = 0;
         mode->dmPelsHeight = 0;
