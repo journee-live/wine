@@ -218,6 +218,7 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     INT i, j;
     INT primary_index;
     BOOL mirrored;
+    FIXME("GPU id %lu\n", gpu_id);
 
     if (gpu_id)
         return FALSE;
