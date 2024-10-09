@@ -1109,6 +1109,7 @@ static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     if (gpu_id == -1)
         goto done;
 
+    FIXME("xrandr14_get_adapters %lu\n", gpu_id);
     if (gpu_id)
     {
         provider_info = pXRRGetProviderInfo( gdi_display, screen_resources, gpu_id );
@@ -1126,6 +1127,7 @@ static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
         output_count = screen_resources->noutput;
         outputs = screen_resources->outputs;
     }
+    FIXME("output count%d\n", output_count);
 
     /* Actual adapter count could be less */
     adapters = calloc( crtc_count, sizeof(*adapters) );
@@ -1197,6 +1199,7 @@ static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
             }
         }
 
+        FIXME("mirrored or detached %d %d\n", mirrored, detached);
         if (!mirrored || detached)
         {
             /* Use RROutput as adapter id. The reason of not using RRCrtc is that we need to detect inactive but

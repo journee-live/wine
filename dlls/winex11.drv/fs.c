@@ -158,7 +158,7 @@ static void update_gpu_monitor_list( struct gdi_gpu *gpu, struct list *monitors 
 
         TRACE( "adapter %p id %p\n", adapter, (void *)adapter->id );
 
-        FIXME("update_gpu_monitor_list %lu", adapter->id);
+        FIXME("update_gpu_monitor_list %lu\n", adapter->id);
         if (!real_settings_handler.get_current_mode( adapter->id, &mode ))
         {
             WARN( "Failed to get current display mode\n" );
@@ -349,7 +349,7 @@ static void monitor_get_modes( struct fs_monitor *monitor, DEVMODEW **modes, UIN
     *mode_count = 0;
     *modes = NULL;
 
-    FIXME("update_gpu_monitor_list %lu", monitor->adapter_id);
+    FIXME("monitor_get_modes %lu\n", monitor->adapter_id);
     if (!real_settings_handler.get_current_mode( monitor->adapter_id, &mode_host )) return;
     /* Fullscreen hack doesn't support changing display orientations */
     if (!real_settings_handler.get_modes( monitor->adapter_id, 0, &real_modes, &real_mode_count )) return;
@@ -629,7 +629,7 @@ static LONG fs_set_current_mode( ULONG_PTR adapter_id, const DEVMODEW *user_mode
         return DISP_CHANGE_SUCCESSFUL;
     }
 
-    FIXME("update_gpu_monitor_list %lu",adapter_id);
+    FIXME("fs_set_current_mode %lu\n",adapter_id);
     /* Real modes may be changed since initialization */
     if (!real_settings_handler.get_current_mode( adapter_id, &real_mode ))
     {
