@@ -18,13 +18,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <sys/types.h>
 #if 0
 #pragma makedep unix
 #endif
 
 #include "config.h"
 
+#include <sys/types.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <X11/Xlib.h>
