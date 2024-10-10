@@ -238,7 +238,7 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     if (primary_index >= nb_monitors)
         primary_index = 0;
 
-    FIXME("primary Indes %d\n", primary_index );
+    FIXME("primary Index %d\n", primary_index );
     FIXME("num monitors %d\n", nb_monitors);
     for (i = 0; i < nb_monitors; i++)
     {

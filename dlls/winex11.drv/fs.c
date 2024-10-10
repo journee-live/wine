@@ -159,7 +159,7 @@ static void update_gpu_monitor_list( struct gdi_gpu *gpu, struct list *monitors 
         TRACE( "adapter %p id %p\n", adapter, (void *)adapter->id );
 
         FIXME("update_gpu_monitor_list %lu\n", adapter->id);
-        if (!real_settings_handler.get_current_mode( adapter->id, &mode ))
+        if (!real_settings_handler.get_current_mode( adapter->id + 1, &mode ))
         {
             WARN( "Failed to get current display mode\n" );
             continue;
