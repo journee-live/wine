@@ -223,6 +223,7 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     if (gpu_id)
         return FALSE;
 
+    FIXME("Is this caled");
     /* Being lazy, actual adapter count may be less */
     pthread_mutex_lock( &xinerama_mutex );
     adapters = calloc( nb_monitors, sizeof(*adapters) );
