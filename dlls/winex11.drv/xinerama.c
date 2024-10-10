@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <sys/types.h>
 #if 0
 #pragma makedep unix
 #endif
@@ -218,12 +219,14 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     INT i, j;
     INT primary_index;
     BOOL mirrored;
+    u_int64_t as = 1032;
+    FIXME("TEST LU %lu\n", as);
     FIXME("GPU id %lu\n", gpu_id);
 
     if (gpu_id)
         return FALSE;
 
-    FIXME("Is this caled");
+    FIXME("Is this caled\n");
     /* Being lazy, actual adapter count may be less */
     pthread_mutex_lock( &xinerama_mutex );
     adapters = calloc( nb_monitors, sizeof(*adapters) );
